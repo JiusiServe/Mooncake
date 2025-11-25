@@ -158,20 +158,38 @@ tl::expected<void, ErrorCode> PyClient::setup_internal(
     const std::shared_ptr<TransferEngine> &transfer_engine) {
     this->protocol = protocol;
 
-    // Remove port if hostname already contains one
     std::string hostname = local_hostname;
-    size_t colon_pos = hostname.find(":");
-    if (colon_pos == std::string::npos) {
-        // Create port binder to hold a port
-        port_binder_ = std::make_unique<AutoPortBinder>();
-        int port = port_binder_->getPort();
-        if (port < 0) {
-            LOG(ERROR) << "Failed to bind available port";
-            return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    bool hasPort = false;
+
+    if (!hostname.empty()) {
+        if (hostname.front() == '[') {
+            // IPv6 with brackets look for "]:"
+            auto pos = hostname.find("]:");
+            if (pos != std::string::npos) {
+                hasPort = true;
+            }
+        } else {
+            // IPv4 or hostname
+            auto pos = hostname.rfind(':');
+            if (pos != std::string::npos &&
+                hostname.find(':') == pos) {
+                // only 1 colon treat as IPv4:port
+                hasPort = true;
+            }
+        // else: multiple ":" it's pure IPv6, no port
         }
-        this->local_hostname = hostname + ":" + std::to_string(port);
+    }
+    if (!hasPort) {
+         port_binder_ = std::make_unique<AutoPortBinder>();
+         int port = port_binder_->getPort();
+         if (port < 0) {
+             LOG(ERROR) << "Failed to bind available port";
+             return tl::unexpected(ErrorCode::INVALID_PARAMS);
+         }
+
+         this->local_hostname = hostname + ":" + std::to_string(port);
     } else {
-        this->local_hostname = local_hostname;
+        this->local_hostname = hostname;
     }
 
     std::optional<std::string> device_name =
